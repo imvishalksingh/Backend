@@ -1,9 +1,13 @@
 const express = require("express");
 const pool = require("../db");
 const router = express.Router();
+const verifyToken = require("../midleware/verifyToken.js");
 
-// ✅ Add Student (manual roll_no)
-router.post("/add", async (req, res) => {
+// ✅ Add Student (Admin only)
+router.post("/add", verifyToken, async (req, res) => {
+  if (req.user.role !== "admin") {
+    return res.status(403).json({ error: "Only admin can add students" });
+  }
   const { name, className, parent_id, roll_no } = req.body;
   try {
     const result = await pool.query(
@@ -16,8 +20,11 @@ router.post("/add", async (req, res) => {
   }
 });
 
-// ✅ Update Student
-router.put("/:id", async (req, res) => {
+// ✅ Update Student (Admin + Teacher)
+router.put("/:id", verifyToken, async (req, res) => {
+  if (!["admin", "teacher"].includes(req.user.role)) {
+    return res.status(403).json({ error: "Only admin or teacher can update" });
+  }
   const { name, className, parent_id, roll_no } = req.body;
   try {
     const result = await pool.query(
@@ -30,23 +37,31 @@ router.put("/:id", async (req, res) => {
   }
 });
 
-
-// ✅ Get All Students (Admin & Teachers)
-router.get("/", async (req, res) => {
+// ✅ Get Students (Parents see only their own child)
+router.get("/", verifyToken, async (req, res) => {
   try {
-    const result = await pool.query("SELECT * FROM students");
+    let result;
+    if (req.user.role === "parent") {
+      result = await pool.query("SELECT * FROM students WHERE parent_id = $1", [req.user.id]);
+    } else {
+      result = await pool.query("SELECT * FROM students");
+    }
     res.json(result.rows);
   } catch (err) {
     res.status(400).json({ error: err.message });
   }
 });
 
-router.delete("/:id", async (req, res) => {
+// ✅ Delete Student (Admin only & after clearing fees)
+router.delete("/:id", verifyToken, async (req, res) => {
+  if (req.user.role !== "admin") {
+    return res.status(403).json({ error: "Only admin can delete students" });
+  }
+
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
 
-    // ✅ Check unpaid fees
     const feeCheck = await client.query(
       "SELECT COUNT(*) AS unpaid_count FROM fees WHERE student_id = $1 AND paid = false",
       [req.params.id]
@@ -54,31 +69,21 @@ router.delete("/:id", async (req, res) => {
 
     if (parseInt(feeCheck.rows[0].unpaid_count) > 0) {
       await client.query("ROLLBACK");
-      return res
-        .status(400)
-        .json({ error: "Please clear all pending fees before deleting this student." });
+      return res.status(400).json({ error: "Clear pending fees before deleting student" });
     }
 
-    // ✅ Delete all paid fee records (to satisfy foreign key)
     await client.query("DELETE FROM fees WHERE student_id = $1", [req.params.id]);
-
-    // ✅ Delete attendance records
     await client.query("DELETE FROM attendance WHERE student_id = $1", [req.params.id]);
-
-    // ✅ Delete student
     await client.query("DELETE FROM students WHERE id = $1", [req.params.id]);
 
     await client.query("COMMIT");
     res.json({ message: "Student deleted successfully" });
   } catch (err) {
     await client.query("ROLLBACK");
-    console.error("Error deleting student:", err);
     res.status(400).json({ error: err.message });
   } finally {
     client.release();
   }
 });
-
-
 
 module.exports = router;
