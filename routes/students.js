@@ -38,19 +38,80 @@ router.put("/:id", verifyToken, async (req, res) => {
 });
 
 // ✅ Get Students (Parents see only their own child)
+//router.get("/", verifyToken, async (req, res) => {
+//  try {
+//    let result;
+//    if (req.user.role === "parent") {
+//      result = await pool.query("SELECT * FROM students WHERE parent_id = $1", [req.user.id]);
+//    } else {
+//      result = await pool.query("SELECT * FROM students");
+//    }
+//    res.json(result.rows);
+//  } catch (err) {
+//    res.status(400).json({ error: err.message });
+//  }
+//});
+
+
+// ✅ GET Students - Parent / Teacher / Admin
+// ✅ Get students for parent with fee & attendance details
 router.get("/", verifyToken, async (req, res) => {
   try {
-    let result;
     if (req.user.role === "parent") {
-      result = await pool.query("SELECT * FROM students WHERE parent_id = $1", [req.user.id]);
-    } else {
-      result = await pool.query("SELECT * FROM students");
+      const query = `
+        SELECT
+          s.id,
+          s.name,
+          s.class,
+          s.roll_no,
+          s.parent_id,
+
+          -- ✅ Attendance Percentage
+          COALESCE((
+            SELECT ROUND(
+              (COUNT(*) FILTER (WHERE a.status = 'Present')::decimal / NULLIF(COUNT(*), 0) * 100),
+              1
+            )
+            FROM attendance a
+            WHERE a.student_id = s.id
+          ), 0) AS attendance_percentage,
+
+          -- ✅ Fee Status
+          CASE
+            WHEN EXISTS (
+              SELECT 1 FROM fees f WHERE f.student_id = s.id AND f.paid = false
+            ) THEN 'Pending'
+            ELSE 'Paid'
+          END AS fee_status,
+
+          -- ✅ Pending Fee Amount
+          COALESCE((
+            SELECT SUM(f.amount)
+            FROM fees f
+            WHERE f.student_id = s.id AND f.paid = false
+          ), 0) AS pending_fee_amount
+
+        FROM students s
+        WHERE s.parent_id = $1;
+      `;
+
+      const result = await pool.query(query, [req.user.id]);
+      return res.json(result.rows);
     }
-    res.json(result.rows);
+
+    if (req.user.role === "teacher" || req.user.role === "admin") {
+      const result = await pool.query("SELECT * FROM students");
+      return res.json(result.rows);
+    }
+
+    res.status(403).json({ error: "Access denied" });
   } catch (err) {
+    console.error("Error fetching students:", err);
     res.status(400).json({ error: err.message });
   }
 });
+
+
 
 // ✅ Delete Student (Admin only & after clearing fees)
 router.delete("/:id", verifyToken, async (req, res) => {
