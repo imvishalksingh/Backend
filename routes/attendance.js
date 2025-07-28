@@ -33,25 +33,29 @@ router.post("/mark", verifyToken, async (req, res) => {
 
   const { student_id, date, status } = req.body;
 
-  const today = moment().format("YYYY-MM-DD");
-  if (date !== today) {
-    return res.status(400).json({ error: "You can only mark attendance for today" });
-  }
-
   try {
+    const formattedDate = moment(date).format("YYYY-MM-DD");
+    const today = moment().format("YYYY-MM-DD");
+
+    if (formattedDate !== today) {
+      return res.status(400).json({ error: "You can only mark attendance for today" });
+    }
+
     const result = await pool.query(
       `INSERT INTO attendance (student_id, date, status)
        VALUES ($1, $2, $3)
        ON CONFLICT (student_id, date)
        DO UPDATE SET status = EXCLUDED.status
        RETURNING *`,
-      [student_id, date, status]
+      [student_id, formattedDate, status]
     );
     res.json(result.rows[0]);
   } catch (err) {
+    console.error("Attendance marking failed:", err);
     res.status(400).json({ error: err.message });
   }
 });
+
 
 router.post("/bulk-mark", verifyToken, async (req, res) => {
   if (!["admin", "teacher"].includes(req.user.role)) {
