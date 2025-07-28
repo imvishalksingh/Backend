@@ -2,6 +2,26 @@ const express = require("express");
 const pool = require("../db");
 const router = express.Router();
 
+
+// ✅ Get All Salaries (for Admin UI)
+router.get("/", async (req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT s.id, s.teacher_id, s.month, s.amount,
+              CASE WHEN s.paid THEN 'Paid' ELSE 'Pending' END AS status,
+              s.paid_date,
+              u.name AS teacher_name
+       FROM salaries s
+       JOIN users u ON s.teacher_id = u.id
+       ORDER BY s.id DESC`
+    );
+    res.json(result.rows);
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+
 // ✅ Admin Adds Salary Record
 router.post("/add", async (req, res) => {
   const { teacher_id, month, amount } = req.body;

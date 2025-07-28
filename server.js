@@ -9,12 +9,16 @@ const resultRoutes = require("./routes/results");
 const notificationRoutes = require("./routes/notifications");
 const salaryRoutes = require("./routes/salaries");
 const exportRoutes = require("./routes/export");
+const userRoutes = require("./routes/userRoutes");
 require("dotenv").config();
 const pool = require("./db");
+
 
 const app = express();
 app.use(cors());
 app.use(express.json());
+
+app.use("/api/users", userRoutes);
 app.use("/api/auth", authRoutes);
 app.use("/api/students", studentRoutes);
 app.use("/api/attendance", attendanceRoutes);

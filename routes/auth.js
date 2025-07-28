@@ -2,22 +2,43 @@ const express = require("express");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 const pool = require("../db");
+const upload = require("../midleware/upload");
 require("dotenv").config();
 
 const router = express.Router();
 
 // REGISTER
-router.post("/register", async (req, res) => {
-  const { name, email, password, role } = req.body;
+router.post("/register", upload.single("photo"), async (req, res) => {
+ console.log("📌 Register API hit!", req.body, req.file);
   try {
-    const hashedPassword = await bcrypt.hash(password, 10);
-    const result = await pool.query(
-      "INSERT INTO users (name, email, password, role) VALUES ($1, $2, $3, $4) RETURNING *",
-      [name, email, hashedPassword, role]
+    const { name, email, password, role } = req.body;
+
+    if (!name || !email || !password || !role) {
+      return res.status(400).json({ error: "All fields are required" });
+    }
+
+    const { rows: existing } = await pool.query(
+      "SELECT * FROM users WHERE email=$1",
+      [email]
     );
-    res.json(result.rows[0]);
+    if (existing.length > 0) {
+      return res.status(400).json({ error: "Email already registered" });
+    }
+
+    const hashedPassword = await bcrypt.hash(password, 10);
+
+    // ✅ If photo uploaded, save its Cloudinary URL
+    const photoUrl = req.file ? req.file.path : null;
+
+    const { rows } = await pool.query(
+      "INSERT INTO users (name, email, password, role, photo) VALUES ($1, $2, $3, $4, $5) RETURNING id, name, email, role, photo",
+      [name, email, hashedPassword, role, photoUrl]
+    );
+
+    res.json(rows[0]);
   } catch (err) {
-    res.status(400).json({ error: err.message });
+    console.error("Error registering user:", err);
+    res.status(500).json({ error: "Internal server error" });
   }
 });
 
