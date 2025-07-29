@@ -24,18 +24,29 @@ const moment = require("moment");
 //    res.status(400).json({ error: err.message });
 //  }
 //});
+
 router.post("/mark", verifyToken, async (req, res) => {
+  // ✅ Role Check
   if (!["admin", "teacher"].includes(req.user.role)) {
     return res.status(403).json({ error: "Only admin or teachers can mark attendance" });
   }
 
-  const { student_id, date, status } = req.body;
+  // ✅ Support both student_id and studentId (camelCase from Android)
+  const student_id = req.body.student_id || req.body.studentId;
+  const { date, status } = req.body;
+
+  // ✅ Validate required fields
+  if (!student_id || !date || !status) {
+    return res.status(400).json({ error: "Missing fields" });
+  }
 
   try {
+    // ✅ Validate status
     if (!["Present", "Absent"].includes(status)) {
       return res.status(400).json({ error: "Invalid attendance status" });
     }
 
+    // ✅ Validate and format date
     const formattedDate = moment(date).format("YYYY-MM-DD");
     const today = moment().format("YYYY-MM-DD");
 
@@ -43,7 +54,10 @@ router.post("/mark", verifyToken, async (req, res) => {
       return res.status(400).json({ error: "You can only mark attendance for today" });
     }
 
- console.log("Saving attendance:", { student_id, formattedDate, status });
+    // ✅ Log for debugging
+    console.log("Saving attendance:", { student_id, formattedDate, status });
+
+    // ✅ Insert or Update Attendance
     const result = await pool.query(
       `INSERT INTO attendance (student_id, date, status)
        VALUES ($1, $2, $3)
@@ -53,12 +67,14 @@ router.post("/mark", verifyToken, async (req, res) => {
       [student_id, formattedDate, status]
     );
 
+    // ✅ Send saved record as response
     res.json(result.rows[0]);
   } catch (err) {
     console.error("Attendance marking failed:", err);
     res.status(500).json({ error: "Internal server error" });
   }
 });
+
 
 
 
