@@ -4,27 +4,6 @@ const router = express.Router();
 const verifyToken = require("../midleware/verifyToken.js");
 const moment = require("moment");
 
-// ✅ Mark Attendance (Admin & Teacher)
-//router.post("/mark", verifyToken, async (req, res) => {
-//  if (!["admin", "teacher"].includes(req.user.role)) {
-//    return res.status(403).json({ error: "Only admin or teachers can mark attendance" });
-//  }
-//  const { student_id, date, status } = req.body;
-//  try {
-//    const result = await pool.query(
-//      `INSERT INTO attendance (student_id, date, status)
-//       VALUES ($1, $2, $3)
-//       ON CONFLICT (student_id, date)
-//       DO UPDATE SET status = EXCLUDED.status
-//       RETURNING *`,
-//      [student_id, date, status]
-//    );
-//    res.json(result.rows[0]);
-//  } catch (err) {
-//    res.status(400).json({ error: err.message });
-//  }
-//});
-
 router.post("/mark", verifyToken, async (req, res) => {
   // ✅ Role Check
   if (!["admin", "teacher"].includes(req.user.role)) {
@@ -77,42 +56,59 @@ router.post("/mark", verifyToken, async (req, res) => {
 
 
 
-
-router.post("/bulk-mark", verifyToken, async (req, res) => {
+router.post("/batch-mark", verifyToken, async (req, res) => {
   if (!["admin", "teacher"].includes(req.user.role)) {
     return res.status(403).json({ error: "Only admin or teachers can mark attendance" });
   }
 
+  const { date, records } = req.body;
+
+  if (!date || !Array.isArray(records) || records.length === 0) {
+    return res.status(400).json({ error: "Missing date or records" });
+  }
+
+  const formattedDate = moment(date).format("YYYY-MM-DD");
   const today = moment().format("YYYY-MM-DD");
 
-  const { attendance } = req.body; // array of {student_id, status}
+  if (formattedDate !== today) {
+    return res.status(400).json({ error: "You can only mark attendance for today" });
+  }
 
-  const client = await pool.connect();
   try {
-    await client.query("BEGIN");
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
 
-    for (const entry of attendance) {
-      const { student_id, status } = entry;
+      for (const { student_id, status } of records) {
+        if (!student_id || !["Present", "Absent"].includes(status)) {
+          throw new Error("Invalid student_id or status");
+        }
 
-      await client.query(
-        `INSERT INTO attendance (student_id, date, status)
-         VALUES ($1, $2, $3)
-         ON CONFLICT (student_id, date)
-         DO UPDATE SET status = EXCLUDED.status`,
-        [student_id, today, status]
-      );
+        console.log("Saving:", { student_id, formattedDate, status });
+
+        await client.query(
+          `INSERT INTO attendance (student_id, date, status)
+           VALUES ($1, $2, $3)
+           ON CONFLICT (student_id, date)
+           DO UPDATE SET status = EXCLUDED.status`,
+          [student_id, formattedDate, status]
+        );
+      }
+
+      await client.query("COMMIT");
+      res.json({ message: "Attendance marked for all students" });
+    } catch (err) {
+      await client.query("ROLLBACK");
+      console.error("Batch attendance failed:", err);
+      res.status(500).json({ error: "Failed to mark batch attendance" });
+    } finally {
+      client.release();
     }
-
-    await client.query("COMMIT");
-    res.json({ message: "Attendance marked successfully" });
   } catch (err) {
-    await client.query("ROLLBACK");
-    res.status(400).json({ error: err.message });
-  } finally {
-    client.release();
+    console.error("DB connection error:", err);
+    res.status(500).json({ error: "Database error" });
   }
 });
-
 
 // ✅ Get Attendance of a Student
 router.get("/:student_id", verifyToken, async (req, res) => {
