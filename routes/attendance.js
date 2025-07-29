@@ -23,9 +23,6 @@ const verifyToken = require("../midleware/verifyToken.js");
 //    res.status(400).json({ error: err.message });
 //  }
 //});
-
-const moment = require("moment");
-
 router.post("/mark", verifyToken, async (req, res) => {
   if (!["admin", "teacher"].includes(req.user.role)) {
     return res.status(403).json({ error: "Only admin or teachers can mark attendance" });
@@ -34,6 +31,10 @@ router.post("/mark", verifyToken, async (req, res) => {
   const { student_id, date, status } = req.body;
 
   try {
+    if (!["Present", "Absent"].includes(status)) {
+      return res.status(400).json({ error: "Invalid attendance status" });
+    }
+
     const formattedDate = moment(date).format("YYYY-MM-DD");
     const today = moment().format("YYYY-MM-DD");
 
@@ -41,6 +42,7 @@ router.post("/mark", verifyToken, async (req, res) => {
       return res.status(400).json({ error: "You can only mark attendance for today" });
     }
 
+ console.log("Saving attendance:", { student_id, formattedDate, status });
     const result = await pool.query(
       `INSERT INTO attendance (student_id, date, status)
        VALUES ($1, $2, $3)
@@ -49,12 +51,14 @@ router.post("/mark", verifyToken, async (req, res) => {
        RETURNING *`,
       [student_id, formattedDate, status]
     );
+
     res.json(result.rows[0]);
   } catch (err) {
     console.error("Attendance marking failed:", err);
-    res.status(400).json({ error: err.message });
+    res.status(500).json({ error: "Internal server error" });
   }
 });
+
 
 
 router.post("/bulk-mark", verifyToken, async (req, res) => {
